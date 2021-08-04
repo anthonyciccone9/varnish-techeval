@@ -1,0 +1,51 @@
+varnishtest "Test hiring vmod"
+
+server s1 {
+       rxreq
+       txresp
+} -start
+
+varnish v1 -vcl+backend {
+	import std;
+	import ${vmod_hiring};
+
+	sub vcl_init {
+		std.log(hiring.info());
+	}
+
+	sub vcl_deliver {
+		set resp.http.hello = hiring.hello("World");
+		set resp.http.info = hiring.info();
+		set resp.http.test = hiring.count("test", "t") => 2
+		set resp.http.test1 = hiring.count("mississippi", "iss") => 2
+		set resp.http.test2 = hiring.count("hello", "x") => 0
+		set rest.http.test3 = hiring.count("oioioioioiioio", "oi") => 6
+		set rest.http.test4 = hiring.count("", "") => 0
+	}
+} -start
+
+logexpect l1 -v v1 -g raw -d 1 {
+	expect 0 0    CLI     {^Rd vcl.load}
+	expect 0 =    VCL_Log {^vmod_hiring loaded at }
+	expect 0 =    VCL_Log {^Looking for needle 't' in haystack 'test'}
+	expect 0 =    VCL_Log {^Looking for needle 'iss' in haystack 'mississippi'}
+	expect 0 =    VCL_Log {^Looking for needle 'x' in haystack 'hello'}
+	expect 0 =    VCL_Log {^Looking for needle 'oi' in haystack 'oioioioioiioio'}
+	expect 0 =    VCL_Log {^Looking for needle '' in haystack ''}
+} -start
+
+client c1 {
+	txreq -url "/"
+	rxresp
+	expect resp.http.hello == "Hello, World"
+	expect resp.http.info  ~  "^vmod_hiring warmed at "
+	expect resp.http.test == 2
+	expect resp.http.test1 == 2
+	expect resp.http.test2 == 0
+	expect resp.http.test3 == 6
+	expect resp.http.test4 == 0
+}
+
+client c1 -run
+
+logexpect l1 -wait
